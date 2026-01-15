@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<!-- saved from url=(0066)file:///C:/Users/j2-16/Downloads/interactive-newyear_Version3.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>不知名网站</title>
+  <meta name="description" content="交互式新年页面：倒计时、烟花、彩纸、祝福墙、本地保存、分享与海报生成（单文件 HTML）。">
+  <style>
+    /* ========= 基础样式 ========= */
+    :root{
+      --bg-top:#290707; --bg-bottom:#7a1212;
+      --card: rgba(255,255,255,0.04);
+      --accent: #ffd166;
+      --muted: rgba(255,255,255,0.7);
+      --maxw: 1100px;
+      --glass: rgba(255,255,255,0.03);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family: "PingFang SC","Segoe UI","Helvetica Neue",Arial; background:linear-gradient(180deg,var(--bg-top),var(--bg-bottom)); color:#fff;-webkit-font-smoothing:antialiased}
+    a{color:var(--accent)}
+
+    /* canvas 背景（烟花/彩片） */
+    canvas#fx{ position:fixed; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+
+    /* 布局 */
+    .wrap{ max-width:var(--maxw); margin:2rem auto; padding:0 1rem; position:relative; z-index:2 }
+    header.site-header{ display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem }
+    .brand h1{ margin:0; font-size:1.5rem }
+    .brand p{ margin:0; color:var(--muted); font-size:0.95rem }
+    .controls{ display:flex; gap:.6rem; align-items:center }
+
+    .countdown{ background:var(--glass); padding:.45rem .8rem; border-radius:8px; font-weight:700; min-width:220px; text-align:center }
+
+    button.btn{ background:var(--accent); border:none; color:#0b0b0b; padding:.5rem .8rem; border-radius:8px; cursor:pointer; font-weight:700 }
+    button.ghost{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:var(--muted) }
+
+    /* 灯笼（右侧装饰） */
+    .lanterns{ position:fixed; right:1rem; top:6rem; display:flex; flex-direction:column; gap:1rem; z-index:1; pointer-events:none }
+    .lantern{ width:56px; height:86px; transform-origin:center; animation:sway 5s ease-in-out infinite }
+    @keyframes sway{ 0%{transform:translateY(0) rotate(-2deg)} 50%{transform:translateY(6px) rotate(3deg)} 100%{transform:translateY(0) rotate(-2deg)} }
+
+    /* 卡片 */
+    .card{ background:var(--card); padding:1rem; border-radius:12px; margin-bottom:1rem; box-shadow:0 10px 30px rgba(2,6,23,0.6) }
+    .card h2{ margin-top:0 }
+    .wall{ display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.8rem }
+    .wish{ background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); padding:.7rem .9rem; border-radius:10px; min-width:180px; max-width:320px; box-shadow:0 8px 20px rgba(0,0,0,0.45) }
+    .wish small{ display:block; color:var(--muted); margin-top:.5rem; font-size:.85rem }
+
+    /* modal */
+    .modal{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(2,6,23,0.5); z-index:10; visibility:hidden; opacity:0; transition:all .16s ease }
+    .modal[aria-hidden="false"]{ visibility:visible; opacity:1 }
+    .panel{ width:min(760px,94%); background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); padding:1rem; border-radius:12px; box-shadow:0 12px 40px rgba(2,6,23,0.7) }
+    textarea#wishInput{ width:100%; min-height:120px; padding:.8rem; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:#fff; resize:vertical }
+
+    /* footer */
+    footer{ text-align:center; padding:1.2rem 0; color:var(--muted); z-index:2; position:relative }
+
+    /* small screens */
+    @media (max-width:720px){
+      .controls{ flex-direction:column; align-items:flex-end; gap:.45rem }
+      .lanterns{ display:none }
+      .countdown{ min-width:unset }
+    }
+  </style>
+</head>
+<body>
+  <!-- 画布：烟花与彩片 -->
+  <canvas id="fx" aria-hidden="true" width="1912" height="954"></canvas>
+
+  <div class="wrap" role="main">
+    <header class="site-header" role="banner">
+      <div class="brand" aria-hidden="false">
+        <h1>新年互动 · 祝福墙 🎉</h1>
+        <p>点击任意处触发烟花。把你的祝福写下��并分享给朋友！</p>
+      </div>
+
+      <div class="controls" role="toolbar" aria-label="页面控制">
+        <div id="countdown" class="countdown" aria-live="polite">352 天 08 : 43 : 28</div>
+        <button id="openModal" class="btn" title="写祝福">写祝福</button>
+        <button id="btnFire" class="btn" title="触发烟花（也可单击页面）">放烟花</button>
+        <button id="toggleMusic" class="btn ghost" title="播放/暂停背景音乐">播放音乐</button>
+      </div>
+    </header>
+
+    <section class="card" aria-labelledby="intro">
+      <h2 id="intro">欢迎</h2>
+      <p>这是一个单文件 HTML 的交互式新年页面：倒计时、烟花、彩片、祝福墙（保存在本地）、分享、海报导出等功能。页面完全离线可用（除非你为音乐提供在线资源）。</p>
+    </section>
+
+    <section class="card" aria-labelledby="wall">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 id="wall">祝福墙</h2>
+        <div>
+          <button id="exportTxt" class="btn ghost">导出 (.txt)</button>
+          <button id="clearWall" class="btn ghost">清空</button>
+        </div>
+      </div>
+
+      <div id="wallList" class="wall" aria-live="polite" aria-relevant="additions"><div class="wish"><div>三伏伏！我爱你1</div><small>2026/1/13 15:15:58</small></div><div class="wish"><div>我要跟叶萍结婚!</div><small>2026/1/13 15:14:24</small></div></div>
+    </section>
+
+    <section class="card" aria-labelledby="howto">
+      <h2 id="howto">使用小提示</h2>
+      <ol>
+        <li>点击“写祝福”输入并发送，会保存到本地祝福墙（localStorage）。</li>
+        <li>祝福可通过系统分享或复制到剪贴板，或生成 PNG 海报下载。</li>
+        <li>任意处点击或按空格/回车可触发烟花（键盘友好）。</li>
+      </ol>
+    </section>
+  </div>
+
+  <footer role="contentinfo">
+    <p>2026 新年互动 · 制作：肖瑾</p>
+  </footer>
+
+  <!-- 右侧装饰灯笼 -->
+  <div class="lanterns" aria-hidden="true">
+    <svg class="lantern" viewBox="0 0 64 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="红灯笼">
+      <ellipse cx="32" cy="40" rx="26" ry="30" fill="#d33"></ellipse><rect x="26" y="6" width="12" height="12" rx="2" fill="#8b1d1d"></rect><rect x="30" y="70" width="4" height="20" rx="2" fill="#8b1d1d"></rect>
+    </svg>
+    <svg class="lantern" viewBox="0 0 64 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="金灯笼">
+      <ellipse cx="32" cy="40" rx="26" ry="30" fill="#e64"></ellipse><rect x="26" y="6" width="12" height="12" rx="2" fill="#9b2a2a"></rect><rect x="30" y="70" width="4" height="20" rx="2" fill="#9b2a2a"></rect>
+    </svg>
+  </div>
+
+  <!-- 模态弹窗：祝福输入 -->
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
+    <div class="panel" role="document">
+      <h3 id="modalTitle">写下你的新年祝福</h3>
+      <textarea id="wishInput" maxlength="300" placeholder="例：祝你新年快乐，身体健康，心想事成！"></textarea>
+
+      <div style="display:flex;gap:.6rem;margin-top:.7rem;flex-wrap:wrap">
+        <button id="sendWish" class="btn">发送并保存</button>
+        <button id="shareWish" class="btn">系统分享 / 复制</button>
+        <button id="downloadPoster" class="btn">生成并下载海报</button>
+        <button id="closeModal" class="btn ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 可选音乐（注释 + 占位），如果你想启用请把 source 注释去掉或替换为有效 URL -->
+  <audio id="bgMusic" loop="" preload="metadata" aria-hidden="true">
+    <!-- <source src="https://example.com/your-newyear-music.mp3" type="audio/mpeg"> -->
+  </audio>
+
+  <script>
+    /* ========= 交互脚本（单文件） =========
+       功能：
+       - 倒计时到下一年（自动）
+       - 点击/键盘触发烟花 + 彩片（canvas）
+       - 祝福墙：localStorage 保存、导出、清空、渲染
+       - 模态：写祝福、分享（Web Share 或 剪贴板）、生成海报（PNG 并下载）
+       - 音乐开关（需提供音频源）
+    */
+
+    (function(){
+      // 元素
+      const canvas = document.getElementById('fx');
+      const ctx = canvas.getContext('2d');
+      const countEl = document.getElementById('countdown');
+      const openModalBtn = document.getElementById('openModal');
+      const modal = document.getElementById('modal');
+      const closeModalBtn = document.getElementById('closeModal');
+      const sendWishBtn = document.getElementById('sendWish');
+      const shareWishBtn = document.getElementById('shareWish');
+      const downloadPosterBtn = document.getElementById('downloadPoster');
+      const wishInput = document.getElementById('wishInput');
+      const wallList = document.getElementById('wallList');
+      const clearWallBtn = document.getElementById('clearWall');
+      const exportTxtBtn = document.getElementById('exportTxt');
+      const btnFire = document.getElementById('btnFire');
+      const musicBtn = document.getElementById('toggleMusic');
+      const bgMusic = document.getElementById('bgMusic');
+
+      // 画布尺寸
+      let W = canvas.width = innerWidth;
+      let H = canvas.height = innerHeight;
+      function resize(){ W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+      addEventListener('resize', resize);
+
+      // 倒计时到下一个公历年 1 月 1 日 00:00
+      function getTarget(){
+        const now = new Date();
+        return new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0);
+      }
+      const target = getTarget();
+      function updateCountdown(){
+        const now = new Date();
+        let diff = Math.max(0, target - now);
+        const days = Math.floor(diff / (1000*60*60*24));
+        diff -= days * (1000*60*60*24);
+        const hours = Math.floor(diff / (1000*60*60));
+        diff -= hours * (1000*60*60);
+        const minutes = Math.floor(diff / (1000*60));
+        diff -= minutes * (1000*60);
+        const seconds = Math.floor(diff / 1000);
+        countEl.textContent = `${days} 天 ${String(hours).padStart(2,'0')} : ${String(minutes).padStart(2,'0')} : ${String(seconds).padStart(2,'0')}`;
+      }
+      setInterval(updateCountdown, 1000);
+      updateCountdown();
+
+      /* ========== 粒子系统（烟花 + 彩片） ========== */
+      const particles = [];
+      const confetti = [];
+      const palette = ['#ff5c7a','#ffd166','#6ee7b7','#8cc0ff','#ff9bd6','#ffd8a8','#ffb347'];
+
+      class P {
+        constructor(x,y,vx,vy,color,size,shape='circle',life=120){
+          this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.color=color; this.size=size; this.shape=shape; this.life=life; this.alpha=1;
+        }
+        update(dt){
+          this.vy += (this.shape==='confetti' ? 0.04 : 0.03) * dt;
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+          this.alpha -= 0.008 * dt;
+          this.life -= dt;
+        }
+        draw(ctx){
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, this.alpha);
+          ctx.fillStyle = this.color;
+          if(this.shape === 'rect'){
+            ctx.fillRect(this.x, this.y, this.size*1.8, this.size*1.2);
+          } else if(this.shape === 'confetti'){
+            ctx.translate(this.x, this.y);
+            ctx.rotate(Math.sin(this.life/8) * 1.2);
+            ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size*0.6);
+          } else {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+
+      function spawnFire(x,y,strength=1.4){
+        const count = Math.floor(28 * strength + Math.random()*36);
+        const mainColor = palette[Math.floor(Math.random()*palette.length)];
+        for(let i=0;i<count;i++){
+          const angle = Math.random()*Math.PI*2;
+          const speed = (Math.random()*3 + 1.6) * (0.6 + Math.random()*strength);
+          const vx = Math.cos(angle)*speed;
+          const vy = Math.sin(angle)*speed*0.9;
+          particles.push(new P(x,y,vx,vy, mainColor, Math.random()*2.8+1.2, 'circle', Math.random()*80+60));
+          if(Math.random() < 0.35) particles.push(new P(x,y,vx*0.6,vy*0.6, mainColor, Math.random()*3+2.2, 'rect', Math.random()*80+50));
+        }
+        // confetti burst
+        for(let k=0;k<14;k++){
+          const a = Math.random()*Math.PI*2;
+          confetti.push(new P(x,y, Math.cos(a)* (Math.random()*2+0.8), Math.sin(a)*(Math.random()*2+0.8), palette[Math.floor(Math.random()*palette.length)], Math.random()*8+6, 'confetti', Math.random()*160+80));
+        }
+      }
+
+      // 点击或按钮触发
+      addEventListener('pointerdown', (e)=>{
+        spawnFire(e.clientX, e.clientY, 1.2);
+      });
+      document.getElementById('btnFire').addEventListener('click', ()=>{
+        spawnFire(innerWidth*0.5, innerHeight*0.4, 1.8);
+      });
+
+      // 键盘友好： 空格/回车 触发（当不在输入框时）
+      addEventListener('keydown', (e)=>{
+        if(e.key === ' ' || e.key === 'Enter'){
+          if(document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+          e.preventDefault();
+          spawnFire(innerWidth*0.5, innerHeight*0.45, 1.2);
+        }
+        if(e.key === 'Escape') hideModal();
+      });
+
+      // 动画循环
+      let last = performance.now();
+      function loop(now){
+        const dt = Math.min(1.8, (now - last)/16);
+        last = now;
+        ctx.clearRect(0,0,W,H);
+        // 背景淡光
+        const g = ctx.createLinearGradient(0,0,0,H);
+        g.addColorStop(0, 'rgba(255,255,255,0.02)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0,0,W,H);
+
+        for(let i = particles.length-1; i>=0; i--){
+          const p = particles[i];
+          p.update(dt);
+          p.draw(ctx);
+          if(p.life <= 0 || p.alpha <= 0 || p.y > H + 80) particles.splice(i,1);
+        }
+        for(let i = confetti.length-1; i>=0; i--){
+          const p = confetti[i];
+          p.update(dt);
+          p.draw(ctx);
+          if(p.life <= 0 || p.y > H + 120) confetti.splice(i,1);
+        }
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+
+      /* ========== 祝福墙（localStorage） ========== */
+      const KEY = 'interactive-newyear-wishes-v1';
+
+      function load(){
+        try{
+          const raw = localStorage.getItem(KEY);
+          return raw ? JSON.parse(raw) : [];
+        }catch(e){ return []; }
+      }
+      function save(arr){
+        try{ localStorage.setItem(KEY, JSON.stringify(arr)); }catch(e){}
+      }
+      function render(){
+        const arr = load();
+        wallList.innerHTML = '';
+        if(arr.length === 0){
+          wallList.innerHTML = '<div class="wish">快写下你的第一条祝福吧！</div>';
+          return;
+        }
+        arr.slice().reverse().forEach(item=>{
+          const d = document.createElement('div');
+          d.className = 'wish';
+          d.innerHTML = `<div>${escapeHtml(item.text)}</div><small>${escapeHtml(item.time)}</small>`;
+          wallList.appendChild(d);
+        });
+      }
+      function addWish(text){
+        if(!text || !text.trim()) return;
+        const arr = load();
+        arr.push({ text: text.trim(), time: new Date().toLocaleString() });
+        save(arr);
+        render();
+      }
+      function clearAll(){
+        localStorage.removeItem(KEY);
+        render();
+      }
+      function exportTxt(){
+        const arr = load();
+        if(!arr.length){ alert('祝福墙为空，无法导出'); return; }
+        const content = arr.map(i => `${i.time}\n${i.text}\n\n`).join('');
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'wishes.txt'; a.click();
+        URL.revokeObjectURL(url);
+      }
+      function escapeHtml(s){ return (s+'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+      // 初始化渲染
+      render();
+
+      /* ========== 模态与分享 ========== */
+      function showModal(){ modal.setAttribute('aria-hidden','false'); wishInput.value=''; wishInput.focus(); }
+      function hideModal(){ modal.setAttribute('aria-hidden','true'); }
+
+      openModalBtn.addEventListener('click', showModal);
+      closeModalBtn.addEventListener('click', hideModal);
+      modal.addEventListener('click', (e)=>{ if(e.target === modal) hideModal(); });
+
+      // 保存并小庆祝
+      sendWishBtn.addEventListener('click', ()=>{
+        const t = wishInput.value || '';
+        if(!t.trim()){ alert('请输入祝福内容'); return; }
+        addWish(t);
+        hideModal();
+        spawnFire(innerWidth*0.5, innerHeight*0.35, 1.6);
+      });
+
+      // 系统分享或剪贴板
+      shareWishBtn.addEventListener('click', async ()=>{
+        const t = wishInput.value || '';
+        if(!t.trim()){ alert('请输入祝福内容'); return; }
+        try{
+          if(navigator.share){
+            await navigator.share({ title:'新年祝福', text: t });
+          } else if(navigator.clipboard){
+            await navigator.clipboard.writeText(t);
+            alert('祝福已复制到剪贴板，可粘贴分享');
+          } else {
+            alert('当前环境不支持系统分享或剪贴板，请手动复制文本');
+          }
+        }catch(e){
+          alert('分享失败：'+ (e && e.message ? e.message : '未知错误'));
+        }
+      });
+
+      /* ========== 海报生成并下载（canvas） ========== */
+      downloadPosterBtn.addEventListener('click', ()=>{
+        const t = wishInput.value || '新年快乐！';
+        genPoster(t);
+      });
+
+      function genPoster(text){
+        const c = document.createElement('canvas');
+        c.width = 1200; c.height = 1600;
+        const cx = c.getContext('2d');
+
+        // 背景
+        const g = cx.createLinearGradient(0,0,c.width,c.height);
+        g.addColorStop(0, '#2b0b0b'); g.addColorStop(1, '#7b0a0a');
+        cx.fillStyle = g; cx.fillRect(0,0,c.width,c.height);
+
+        // 装饰圆
+        cx.beginPath(); cx.fillStyle = 'rgba(255,215,100,0.06)'; cx.arc(c.width/2, 380, 260, 0, Math.PI*2); cx.fill();
+
+        // 标题
+        cx.fillStyle = '#ffd386'; cx.textAlign = 'center';
+        cx.font = 'bold 64px sans-serif'; cx.fillText('新年快乐 · 2026', c.width/2, 120);
+
+        // 祝福文本（换行）
+        cx.fillStyle = '#fff2d6'; cx.font = '48px sans-serif';
+        wrapText(cx, text, c.width/2, 540, 920, 64);
+
+        // 底部
+        cx.fillStyle = 'rgba(255,255,255,0.75)'; cx.font = '24px sans-serif';
+        cx.fillText('来自 新年祝福墙', c.width/2, c.height - 80);
+
+        // 下载
+        const a = document.createElement('a');
+        a.download = 'newyear-wish.png';
+        a.href = c.toDataURL('image/png');
+        a.click();
+      }
+      function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+        const words = text.split(/\s+/);
+        let line = '';
+        let curY = y;
+        for(let n=0;n<words.length;n++){
+          const test = line ? (line + ' ' + words[n]) : words[n];
+          if(ctx.measureText(test).width > maxWidth && n > 0){
+            ctx.fillText(line, x, curY);
+            line = words[n];
+            curY += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        ctx.fillText(line, x, curY);
+      }
+
+      /* ========== 祝福墙按钮 ========= */
+      clearWallBtn.addEventListener('click', ()=>{
+        if(!confirm('确定清空本地保存的所有祝福吗？此操作不可恢复。')) return;
+        clearAll();
+      });
+      exportTxtBtn.addEventListener('click', exportTxt);
+
+
+      // 小彩蛋：首次打开给一点烟花
+      setTimeout(()=> spawnFire(innerWidth*0.5, innerHeight*0.4, 1.3), 900);
+
+      // expose for console debugging (optional)
+      window._NY = { spawnFire, addWish, render };
+
+    })();
+  </script>
+
+</body></html>
